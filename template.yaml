@@ -8,6 +8,23 @@ Globals:
   Function:
     Timeout: 3
 
+Parameters:
+
+  REGIONNAME:
+    Type: String
+    Description: Default region for deployment.
+    Default: 'eu-west-1'
+
+  AWSENVNAME:
+    Type: String
+    Description: AWS Environment where code is being executed (AWS_SAM_LOCAL or AWS).
+    Default: 'AWS_SAM_LOCAL'
+
+  DEVENVNAME:
+    Type: String
+    Description: Developer environment where code is being executed (OSX, Windows, or Linux).
+    Default: 'OSX'
+
 Resources:
   HelloWorldFunction:
     Type: AWS::Serverless::Function # More info about Function Resource: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#awsserverlessfunction
@@ -23,7 +40,15 @@ Resources:
             Method: get
       Environment:
         Variables:
-          GREETING_TABLE: !GetAtt GreetingTable
+          TABLE: !Ref GreetingTable
+          REGION: !Ref REGIONNAME
+          AWSENV: !Ref AWSENVNAME
+          DEVENV: !Ref DEVENVNAME
+      Tracing: Active
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - DynamoDBCrudPolicy:
+            TableName: !Ref GreetingTable
 
   GreetingTable:
     Type: AWS::DynamoDB::Table
@@ -36,10 +61,6 @@ Resources:
           KeyType: HASH
       AttributeDefinitions:
         - AttributeName: id
-          AttributeType: S
-        - AttributeName: ip
-          AttributeType: S
-        - AttributeName: timestamp
           AttributeType: S
 
 Outputs:
@@ -54,5 +75,5 @@ Outputs:
     Value: !GetAtt HelloWorldFunctionRole.Arn
   GreetingTableArn:
     Description: "dynamoDB GreetingTable Arn"
-    Value: !GetAtt GreetingTable.Arn
+    Value: !Ref GreetingTable
 
