@@ -2,7 +2,7 @@ all: build deploy
 ORIGIN ?= http://localhost:8080
 ENV ?= aws
 STACKNAME ?= vince-sam-app
-DOCKER_NETWORK ?= lambda-network
+DOCKER_NETWORK ?= aws-serverless-python-greetings_default
 TABLENAME ?= DynamoDbGreetingsTable
 SAMCONFIG ?= samconfig
 TEMPLATE ?= template
@@ -29,8 +29,8 @@ tests:
 
 localtest:
 	@echo "SAM Local Testing first call"
-	@ENABLE_LAMBDA_EXTENSIONS_PREVIEW=1 sam local invoke AddToGreetingsFunction --event events/event.json
-	#@ENABLE_LAMBDA_EXTENSIONS_PREVIEW=1 sam local invoke ListGreetingsFunction --event events/event.json
+	@ENABLE_LAMBDA_EXTENSIONS_PREVIEW=1 ENV=dev TABLE_NAME=$(TABLENAME) sam local invoke AddToGreetingsFunction --event events/event.json --docker-network $(DOCKER_NETWORK)
+	@ENABLE_LAMBDA_EXTENSIONS_PREVIEW=1 ENV=dev TABLE_NAME=$(TABLENAME) sam local invoke ListGreetingsFunction --event events/event.json --docker-network $(DOCKER_NETWORK)
 
 deploy: build
 	@echo "Deploying stack $(STACKNAME)-$(TEMPLATE) with $(SAMCONFIG)..."

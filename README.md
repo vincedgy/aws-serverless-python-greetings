@@ -110,9 +110,12 @@ make tests
 
 #### Launch local DynamoDB 
 
-Using docker-compose you can launch a stack that will run a dynamoDb locally for your tests
+Using docker-compose you can launch a stack that will run a dynamoDb locally for your tests.
+
+Note that we need to create a specific network in order to use the local dynamoDB
 
 ```shell script
+docker network create --attachable aws-serverless-python-greetings_default
 docker-compose up -d
 ```
 
