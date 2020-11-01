@@ -7,9 +7,12 @@ authors = ["Vincent <vincent.dagoury@gmail.com>"]
 [tool.poetry.dependencies]
 python = "^3.9.0"
 requests = "^2.24.0"
-boto3 = "^1.16.4"
+boto3 = "^1.16.9"
+aws-lambda-powertools = "^1.7.0"
 
 [tool.poetry.dev-dependencies]
+pytest = "^6.1.2"
+pytest-mock = "^3.3.1"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]

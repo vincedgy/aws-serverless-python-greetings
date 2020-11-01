@@ -4,76 +4,275 @@ Description: >
   AWS
   Sample SAM Template for AWS
 
-Globals:
-  Function:
-    Timeout: 3
-
 Parameters:
 
-  REGIONNAME:
+  EnvParameter:
     Type: String
-    Description: Default region for deployment.
-    Default: 'eu-west-1'
+    Default: 'dev'
+  AllowedOrigin:
+    Type: 'String'
+    Default: '*'
 
-  AWSENVNAME:
-    Type: String
-    Description: AWS Environment where code is being executed (AWS_SAM_LOCAL or AWS).
-    Default: 'AWS_SAM_LOCAL'
+Globals:
+  Function:
+    Timeout: 600
+    MemorySize: 512
+    Tracing: Active
+    AutoPublishAlias: live
+    Runtime: python3.8
+    Environment:
+      Variables:
+        TABLE_NAME: !Ref DynamodDbGreetingsTable
+        LOG_LEVEL: "INFO"
+        ALLOWED_ORIGIN: !Ref AllowedOrigin
+        POWERTOOLS_METRICS_NAMESPACE: VinceGreetingsFunction-app
+        POWERTOOLS_SERVICE_NAME: VinceGreetingsFunction
+        DYNAMODB_TABLE_NAME: !Ref DynamodDbGreetingsTable
+        ENV: !Ref EnvParameter
 
-  DEVENVNAME:
-    Type: String
-    Description: Developer environment where code is being executed (OSX, Windows, or Linux).
-    Default: 'OSX'
+  Api:
+    EndpointConfiguration: REGIONAL
+    TracingEnabled: true
+    OpenApiVersion: '3.0.1'
+    Cors:
+      AllowMethods: "'OPTIONS,POST,GET,PUT'"
+      AllowHeaders: "'Content-Type'"
+      #AllowHeaders: "'Content-Type,Authorization'"
+      AllowCredentials: true
+      AllowOrigin: !Sub "'${AllowedOrigin}'"
 
 Resources:
-  HelloWorldFunction:
-    Type: AWS::Serverless::Function # More info about Function Resource: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#awsserverlessfunction
+  UtilsLayer:
+    Type: AWS::Serverless::LayerVersion
     Properties:
-      CodeUri: greetings/
-      Handler: app.lambda_handler
-      Runtime: python3.8
-      Events:
-        HelloWorld:
-          Type: Api # More info about API Event Source: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#api
-          Properties:
-            Path: /hello
-            Method: get
-      Environment:
-        Variables:
-          TABLE: !Ref GreetingTable
-          REGION: !Ref REGIONNAME
-          AWSENV: !Ref AWSENVNAME
-          DEVENV: !Ref DEVENVNAME
-      Tracing: Active
-      Policies:
-        - AWSLambdaBasicExecutionRole
-        - DynamoDBCrudPolicy:
-            TableName: !Ref GreetingTable
+      ContentUri: ./layers/
+      CompatibleRuntimes:
+        - python3.8
+    Metadata:
+      BuildMethod: python3.8
 
-  GreetingTable:
+  GreetingsApi:
+    Type: AWS::Serverless::Api
+    DependsOn:
+      - ApiGWAccount
+    Properties:
+      StageName: Prod
+      MethodSettings:
+        - DataTraceEnabled: True
+          MetricsEnabled: True
+          ResourcePath: "/*"
+          HttpMethod: "*"
+          LoggingLevel: INFO
+
+  ListGreetingsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Action:
+            - "sts:AssumeRole"
+            Effect: "Allow"
+            Principal:
+              Service:
+                - "lambda.amazonaws.com"
+  AddToGreetingsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Action:
+              - "sts:AssumeRole"
+            Effect: "Allow"
+            Principal:
+              Service:
+                - "lambda.amazonaws.com"
+
+  LambdaLoggingPolicy:
+    Type: "AWS::IAM::Policy"
+    Properties:
+      PolicyName: LambdaXRayPolicy
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          -
+            Effect: "Allow"
+            Action: [
+              "xray:PutTraceSegments",
+              "xray:PutTelemetryRecords",
+              "logs:CreateLogGroup",
+              "logs:CreateLogStream",
+              "logs:PutLogEvents"
+              ]
+            Resource: "*"
+      Roles:
+        - !Ref ListGreetingsRole
+        - !Ref AddToGreetingsRole
+
+  DynamoDBReadPolicy:
+    Type: "AWS::IAM::Policy"
+    Properties:
+      PolicyName: DynamoDBReadPolicy
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          -
+            Effect: "Allow"
+            Action: [
+              "dynamodb:GetItem",
+              "dynamodb:Scan",
+              "dynamodb:Query",
+              "dynamodb:BatchGetItem",
+              "dynamodb:DescribeTable"
+              ]
+            Resource:
+              - !GetAtt DynamodDbGreetingsTable.Arn
+      Roles:
+        - !Ref ListGreetingsRole
+        - !Ref AddToGreetingsRole
+
+  DynamoDBWritePolicy:
+    Type: "AWS::IAM::Policy"
+    Properties:
+      PolicyName: DynamoDBWritePolicy
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          -
+            Effect: "Allow"
+            Action: [
+              "dynamodb:PutItem",
+              "dynamodb:UpdateItem",
+              "dynamodb:ConditionCheckItem",
+              "dynamodb:DeleteItem",
+              "dynamodb:BatchWriteItem"
+            ]
+            Resource: !GetAtt DynamodDbGreetingsTable.Arn
+      Roles:
+        - !Ref AddToGreetingsRole
+
+  ListGreetingsFunction:
+    Type: AWS::Serverless::Function
+    DependsOn:
+      - LambdaLoggingPolicy
+    Properties:
+      CodeUri: greetings-service/
+      Handler: list_greetings.lambda_handler
+      Role: !GetAtt ListGreetingsRole.Arn
+      Layers:
+        - !Ref UtilsLayer
+        - !GetAtt AwsLambdaPowertoolsPythonLayer.Outputs.LayerVersionArn
+#      Environment:
+#        Variables:
+#          USERPOOL_ID: !Ref UserPoolId
+      Events:
+        ListGreetings:
+          Type: Api
+          Properties:
+            RestApiId: !Ref GreetingsApi
+            Path: /greetings
+            Method: get
+
+  AddToGreetingsFunction:
+    Type: AWS::Serverless::Function
+    DependsOn:
+      - LambdaLoggingPolicy
+    Properties:
+      CodeUri: greetings-service/
+      Handler: add_to_greetings.lambda_handler
+      Role: !GetAtt AddToGreetingsRole.Arn
+      Layers:
+        - !Ref UtilsLayer
+        - !GetAtt AwsLambdaPowertoolsPythonLayer.Outputs.LayerVersionArn
+      #      Environment:
+#        Variables:
+#          PRODUCT_SERVICE_URL: !Ref ProductServiceUrl
+#          USERPOOL_ID: !Ref UserPoolId
+      Events:
+        AddToGreetings:
+          Type: Api
+          Properties:
+            RestApiId: !Ref GreetingsApi
+            Path: /greetings
+            Method: post
+
+#  AddToGreetingsFunction:
+#    Type: AWS::Serverless::Function # More info about Function Resource: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#awsserverlessfunction
+#    Properties:
+#      CodeUri: greetings-service/
+#      Handler: add_to_greetings.lambda_handler
+#      Runtime: python3.8
+#      Events:
+#        HelloWorld:
+#          Type: Api # More info about API Event Source: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#api
+#          Properties:
+#            Path: /hello
+#            Method: get
+#      Environment:
+#        Variables:
+#          POWERTOOLS_SERVICE_NAME: VinceGreetingsFunction
+#          DYNAMODB_TABLE_NAME: !Ref GreetingTable
+#          ENV: !Ref EnvParameter
+#      Policies:
+#        - AWSLambdaBasicExecutionRole
+#        - DynamoDBCrudPolicy:
+#            TableName: !Ref GreetingTable
+#      Layers:
+#        - !GetAtt AwsLambdaPowertoolsPythonLayer.Outputs.LayerVersionArn
+
+  AwsLambdaPowertoolsPythonLayer:
+    Type: AWS::Serverless::Application
+    Properties:
+      Location:
+        ApplicationId: arn:aws:serverlessrepo:eu-west-1:057560766410:applications/aws-lambda-powertools-python-layer
+        SemanticVersion: 1.7.0 # change to latest semantic version available in SAR
+
+  DynamodDbGreetingsTable:
     Type: AWS::DynamoDB::Table
     Properties:
-      ProvisionedThroughput:
-        WriteCapacityUnits: 1
-        ReadCapacityUnits: 1
-      KeySchema:
-        - AttributeName: id
-          KeyType: HASH
       AttributeDefinitions:
-        - AttributeName: id
+        - AttributeName: pk
           AttributeType: S
+        - AttributeName: sk
+          AttributeType: S
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+        - AttributeName: sk
+          KeyType: RANGE
+      BillingMode: PAY_PER_REQUEST
+      StreamSpecification:
+        StreamViewType: 'NEW_AND_OLD_IMAGES'
+      TimeToLiveSpecification:
+        AttributeName: expirationTime
+        Enabled: True
+
+  APIGWCloudWatchRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - apigateway.amazonaws.com
+            Action: 'sts:AssumeRole'
+      Path: /
+      ManagedPolicyArns:
+        - >-
+          arn:aws:iam::aws:policy/service-role/AmazonAPIGatewayPushToCloudWatchLogs
+  ApiGWAccount:
+    Type: 'AWS::ApiGateway::Account'
+    Properties:
+      CloudWatchRoleArn: !GetAtt APIGWCloudWatchRole.Arn
 
 Outputs:
-  HelloWorldApi:
-    Description: "API Gateway endpoint URL for Prod stage for Hello World function"
-    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/hello/"
-  HelloWorldFunction:
-    Description: "Hello World Lambda Function ARN"
-    Value: !GetAtt HelloWorldFunction.Arn
-  HelloWorldFunctionIamRole:
-    Description: "Implicit IAM Role created for Hello World function"
-    Value: !GetAtt HelloWorldFunctionRole.Arn
-  GreetingTableArn:
-    Description: "dynamoDB GreetingTable Arn"
-    Value: !Ref GreetingTable
+  GreetingsApi:
+    Description: "API Gateway endpoint URL for Prod stage for Greetings Service"
+    Value: !Sub "https://${GreetingsApi}.execute-api.${AWS::Region}.amazonaws.com/Prod"
+  DynamodDbGreetingsTable:
+    Description: "dynamoDB DynamodDbGreetingsTable Arn"
+    Value: !Ref DynamodDbGreetingsTable
 
