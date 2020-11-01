@@ -1,8 +1,8 @@
 [tool.poetry]
-name = "awsprj1"
+name = "aws-serverless-python-greetings"
 version = "0.1.0"
-description = ""
-authors = ["Vincent <vincent.dagoury@gmail.com>"]
+description = "A simple server less project using AWS SAM, python 3.9 with poetry Function : say Greetings, but not all day long for you IP, using DynamoDB."
+authors = ["vincedgy <vincent.dagoury@gmail.com>"]
 
 [tool.poetry.dependencies]
 python = "^3.9.0"

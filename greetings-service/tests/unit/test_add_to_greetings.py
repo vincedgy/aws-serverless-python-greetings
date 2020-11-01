@@ -1,13 +1,14 @@
 
 import json
-import requests
-import time
-import uuid
 import os
 import sys
-import boto3
-from pprint import pprint
+import time
 import unittest
+import uuid
+from pprint import pprint
+
+import boto3
+import requests
 
 sys.path.append("../..")  # Add application to path
 sys.path.append("./layers/")  # Add layer to path

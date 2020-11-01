@@ -1,12 +1,15 @@
+import sys
 import json
 import requests
+import datetime
 import time
 import uuid
 import os
 import boto3
-
 from aws_lambda_powertools import Logger, Metrics, Tracer
 
+sys.path.append("..")  # Add application to path
+sys.path.append("../layers")  # Add layer to path
 from shared import (
     generate_ttl,
     get_headers,
@@ -18,7 +21,7 @@ metrics = Metrics()
 
 tableName = os.environ["TABLE_NAME"]
 if os.environ['ENV'] == 'dev':
-    dynamodb = boto3.client("dynamodb", endpoint_url="http://127.0.0.1:8000")
+    dynamodb = boto3.client("dynamodb", endpoint_url="http://dynamodb-local:8000")
 else:
     dynamodb = boto3.client("dynamodb")
 
@@ -61,31 +64,39 @@ def lambda_handler(event, context):
     ip = requests.get("http://checkip.amazonaws.com/").text.replace("\n", "")
     pk = str(uuid.uuid4())
     timestamp = time.strftime('%Y-%m-%d %H:%M:%S')
-    ttl = str(generate_ttl(7))
+    week = datetime.datetime.today() + datetime.timedelta(days=7)
+    expiry_date_time = int(time.mktime(week.timetuple()))
 
-    result = dynamodb.update_item(
-        TableName=tableName,
-        Key={
-            "pk": {"S": pk},
-            "sk": {"S": f"ip#{ip}"}
-        },
-        ExpressionAttributeNames={
-            "#ip": "ip",
-            "#ttl": "ttl",
-            "#client_id": "client_id",
-            "#timestamp": "timestamp"
-        },
-        ExpressionAttributeValues={
-            ":ip": {"S": ip},
-            ":ttl": {"N": ttl},
-            ":client_id": {"S": client_id},
-            ":timestamp": {"S": timestamp}
-        },
-        UpdateExpression="SET #ttl=:ttl, #client_id=:client_id, #timestamp=:timestamp",
-        ReturnValues="ALL_NEW"
-    )
-    logger.info(result)
+    try:
+        result = dynamodb.put_item(
+            TableName=tableName,
+            Item={
+                'pk': {'S': pk},
+                'sk': {'S': ip},
+                'client_id': {'S': client_id},
+                'timestamp': {'S': timestamp},
+                'ttl': {'N': str(expiry_date_time)}
+            })
+        print(result)
+    except Exception as e:
+        logger.error(e)
+
+    # result = table.update_item(
+    #     Key={
+    #         "pk": {"S": pk}
+    #     },
+    #     ExpressionAttributeValues={
+    #         ":ip": {"S": ip},
+    #         ":ttl": {"N": ttl},
+    #         ":client_id": {"S": client_id},
+    #         ":timestamp": {"S": timestamp}
+    #     },
+    #     UpdateExpression="SET sk=:ip, ttl=:ttl, client_id=:client_id, timestamp=:timestamp",
+    #     ReturnValues="ALL_NEW"
+    # )
+
     # metrics.add_metric(name="GreetingAdded", unit="Count", value=1)
+
 
     return {
         "statusCode": 200,
